@@ -1,4 +1,4 @@
-# Microglial C1q, C3 and complement receptors: fixed-effect meta-analysis of the two snRNA-seq datasets (Wamsley, Velmeshev).
+# Microglial C3 and complement receptors: fixed-effect meta-analysis of the two snRNA-seq datasets (Wamsley, Velmeshev).
 # Inputs (relative to ASD_ROOT): brain/data/lr_singlecell/de_genes_both_datasets.tsv  (sc_de_both.R)
 # Outputs (relative to ASD_ROOT): brain/data/lr_singlecell/microglia_complement_meta.tsv
 #   per gene: logFC / P / FDR in each dataset, meta log2FC, meta SE, meta P, heterogeneity P
@@ -8,7 +8,7 @@
 suppressPackageStartupMessages({library(data.table)})
 ROOT <- Sys.getenv("ASD_ROOT", ".")
 SC <- file.path(ROOT, "brain", "data", "lr_singlecell")
-GENES <- c("C1QA", "C1QB", "C1QC", "C3", "C3AR1", "VSIG4", "C5AR1", "ITGB2", "ITGAM", "ITGAX")
+GENES <- c("C3", "C3AR1", "VSIG4", "C5AR1", "ITGB2", "ITGAM", "ITGAX")
 RECEPTORS <- c("C3AR1", "VSIG4", "C5AR1", "ITGB2", "ITGAM", "ITGAX")   # the six microglial complement receptors
 
 de <- fread(file.path(SC, "de_genes_both_datasets.tsv"))[celltype == "MG" & gene %in% GENES]
