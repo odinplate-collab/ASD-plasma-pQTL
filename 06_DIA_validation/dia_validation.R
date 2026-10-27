@@ -1,5 +1,6 @@
 # DIA validation cohort: preprocessing, pQTL replication, cross-platform concordance,
-# pathway-level replication and five-group summaries for the 12-protein panel.
+# pathway-level replication, five-group summaries for the 12-protein panel, and the MBL2
+# abundance distribution in ASD versus individuals without ASD.
 # Inputs (relative to ASD_ROOT):
 #   Validation/ASD_459_report.pg_matrix.tsv        DIA-NN protein-group matrix (459 samples)
 #   Validation/ASD_459_report.pr_matrix.tsv        DIA-NN precursor matrix
@@ -14,6 +15,7 @@
 #   panel12/dia_validation/stats_pqtl_replication.csv     genotype statistics (TMT and DIA)
 #   panel12/dia_validation/stats_dep_concordance.csv      TMT log2FC vs DIA delta z (386 proteins)
 #   panel12/dia_validation/stats_pathway_replication.csv  fraction of DEPs per pathway
+#   panel12/dia_validation/stats_mbl2_distribution.csv    MBL2, ASD versus individuals without ASD
 #   panel12/data/dia_group_summary.tsv            n, mean, SE per protein and DIA group
 #   panel12/data/dia_ASD_vs_Control.tsv           ASD vs Control (TD) Welch t-test
 # Usage: Rscript dia_validation.R
@@ -45,13 +47,13 @@ pqtl_cis_file    <- file.path(derived_dir, "asd_cis_pqtl_peptide.xlsx")
 SUBJECT_LABEL_ASD <- "\uc790\ud3d0"
 SUBJECT_LABEL_TD  <- "\uc815\uc0c1"
 
-risk_genes   <- c("C3","AHSG","MBL2","C1RL","POSTN","BCHE","BTD","ANPEP",
+panel_genes   <- c("C3","AHSG","MBL2","C1RL","POSTN","BCHE","BTD","ANPEP",
                   "CLEC3B","IGFBP5","PTGDS","QSOX1")
-risk_uniprot <- c(C3="P01024", AHSG="P02765", MBL2="P11226", C1RL="Q9NZP8",
+panel_uniprot <- c(C3="P01024", AHSG="P02765", MBL2="P11226", C1RL="Q9NZP8",
                   POSTN="Q15063", BCHE="P06276", BTD="P43251", ANPEP="P15144",
                   CLEC3B="P05452", IGFBP5="P24593", PTGDS="P41222",
                   QSOX1="O00391")
-uniprot_to_gene <- setNames(names(risk_uniprot), risk_uniprot)
+uniprot_to_gene <- setNames(names(panel_uniprot), panel_uniprot)
 
 # Per-row z-score; rows with zero or undefined SD become NA
 zscore_rows <- function(m) {
@@ -210,7 +212,7 @@ pqtl_final <- read_excel(pqtl_cis_file) %>%
 
 # Lead variant per protein (smallest P over all peptides of the protein)
 pqtl_leads <- pqtl_final %>%
-  filter(GeneSymbol %in% risk_genes) %>%
+  filter(GeneSymbol %in% panel_genes) %>%
   arrange(GeneSymbol,
           factor(region, levels = c("Cis", "Trans")),
           p_cond) %>%
@@ -223,9 +225,9 @@ pqtl_leads <- pqtl_final %>%
 cat("Lead pQTL SNPs (cis-prioritized):\n")
 print(pqtl_leads %>% select(GeneSymbol, snps, region, beta, pvalue, peptide_id, pep_sequence))
 
-cat("\nRisk proteins after shared filtering:\n")
-for (g in risk_genes) {
-  uid <- risk_uniprot[g]
+cat("\nPanel proteins after shared filtering:\n")
+for (g in panel_genes) {
+  uid <- panel_uniprot[g]
   found <- uid %in% dia_processed$Protein.Ids
   cat(sprintf("  %s (%s): %s\n", g, uid, ifelse(found, "PRESENT", "FILTERED OUT")))
 }
@@ -273,8 +275,8 @@ cat(sprintf("  DIA matched: %d\n", nrow(geno_mapping_dia)))
 dia_pep_avail <- dia_pep_processed %>%
   distinct(Protein.Ids, Stripped.Sequence)
 
-best_pairs <- map_dfr(risk_genes, function(g) {
-  uid <- risk_uniprot[g]
+best_pairs <- map_dfr(panel_genes, function(g) {
+  uid <- panel_uniprot[g]
   dia_seqs <- dia_pep_avail %>% filter(Protein.Ids == uid) %>% pull(Stripped.Sequence)
 
   matched <- pqtl_final %>%
@@ -298,6 +300,10 @@ best_pairs <- map_dfr(risk_genes, function(g) {
   }
 })
 
+# MBL2 is tested at the protein-level lead cis variant rs7899547 (10:54536839:T:G) on the same peptide
+best_pairs <- best_pairs %>%
+  mutate(snp = if_else(gene == "MBL2", "10:54536839:T:G", snp))
+
 cat("\nBest pairs per gene:\n")
 print(best_pairs %>% select(gene, snp, region, peptide_id, dia_level))
 
@@ -310,7 +316,7 @@ for (i in seq_len(nrow(best_pairs))) {
   pep_id     <- best_pairs$peptide_id[i]
   pep_seq    <- best_pairs$pep_seq[i]
   dia_level  <- best_pairs$dia_level[i]
-  uniprot    <- risk_uniprot[gene]
+  uniprot    <- panel_uniprot[gene]
   chr_pos    <- str_extract(snp_id, "^\\d+:\\d+")
 
   geno_row_c <- geno_case %>% filter(variantid == snp_id)
@@ -419,7 +425,7 @@ dep_conc <- tmt_dep %>%
   inner_join(pr_gene_map %>% rename(Gene = Genes) %>%
                distinct(Gene, .keep_all = TRUE), by = "Gene") %>%
   inner_join(dia_fc_all, by = "Protein.Ids") %>%
-  mutate(is_risk = Gene %in% risk_genes) %>%
+  mutate(in_panel = Gene %in% panel_genes) %>%
   filter(!is.na(dia_fc), !is.na(tmt_log2fc))
 
 fc_r <- cor(dep_conc$tmt_log2fc, dep_conc$dia_fc, use = "complete.obs")
@@ -488,21 +494,21 @@ write_csv(pw_res, file.path(out_dir, "stats_pathway_replication.csv"))
 cat("\n=== DIA group summaries ===\n")
 
 # Protein-level z-scores of the 12 proteins in all DIA samples with a group label
-risk_expr <- dia_processed %>%
-  filter(Protein.Ids %in% risk_uniprot) %>%
+panel_expr <- dia_processed %>%
+  filter(Protein.Ids %in% panel_uniprot) %>%
   mutate(Gene = uniprot_to_gene[Protein.Ids]) %>%
   select(Gene, all_of(dia_sample_ids)) %>%
   pivot_longer(-Gene, names_to = "Sample_id", values_to = "abundance") %>%
   left_join(dia_meta, by = "Sample_id") %>%
   filter(!is.na(Group), !is.na(abundance))
 
-group_summary <- risk_expr %>%
+group_summary <- panel_expr %>%
   group_by(protein = Gene, Group) %>%
   summarise(n = n(), mean = mean(abundance), se = sd(abundance) / sqrt(n()),
             .groups = "drop")
 
 # ASD vs Control (TD): Welch t-test when both groups have > 2 values; diff = ASD - Control
-asd_vs_ctrl <- risk_expr %>%
+asd_vs_ctrl <- panel_expr %>%
   group_by(protein = Gene) %>%
   group_modify(function(d, key) {
     a <- d$abundance[d$Group == "ASD"]
@@ -522,5 +528,54 @@ cat(sprintf("DIA ASD vs Control, nominal P < 0.05: %d / %d\n",
 
 write_tsv(group_summary, file.path(dat_dir, "dia_group_summary.tsv"))
 write_tsv(asd_vs_ctrl,   file.path(dat_dir, "dia_ASD_vs_Control.tsv"))
+
+
+# ==============================================================================
+# 8. MBL2 distribution: ASD versus all individuals without ASD
+# ==============================================================================
+# MBL2 protein group (DIA-NN), proteins quantified in >= 70% of all runs, log2, quantile-normalized
+# across all runs, standardized to the mean and SD of the probands and relatives (the unrelated TD
+# individuals, acquired in a separate batch, are placed on the same scale). ASD (n = 131) is compared
+# with parents, siblings and TD individuals pooled: two-sample Kolmogorov-Smirnov distance D with P from
+# 5,000 permutations of the ASD label within families (TD individuals are single-member families), and
+# the mean difference from abundance ~ ASD + (1 | family) (lme4/lmerTest).
+
+cat("\n=== MBL2 distribution ===\n")
+
+pg_mat <- as.matrix(dia_raw[, 6:ncol(dia_raw)])
+colnames(pg_mat) <- sub("_2ug_DIA\\.raw$", "", sub("^.*\\\\", "", colnames(pg_mat)))
+pg_keep <- rowMeans(!is.na(pg_mat)) >= 0.7
+pg_q <- normalize.quantiles(log2(pg_mat[pg_keep, ]))
+dimnames(pg_q) <- list(dia_raw$Protein.Group[pg_keep], colnames(pg_mat))
+
+mbl2 <- dia_meta %>%
+  mutate(Group = as.character(Group)) %>%
+  filter(Sample_id %in% colnames(pg_q)) %>%
+  mutate(role_order = match(Group, c("Father", "Mother", "ASD", "Sibling", "Control"))) %>%
+  arrange(is.na(Family), Family, role_order, is.na(Famil_n), Famil_n) %>%
+  mutate(y   = pg_q["P11226", Sample_id],
+         asd = as.integer(Group == "ASD"),
+         fam = if_else(is.na(Family), paste0("TD_", Sample_id), as.character(Family)))
+ref <- mbl2$Group != "Control"
+mbl2 <- mbl2 %>%
+  mutate(y = (y - mean(y[ref], na.rm = TRUE)) / sd(y[ref], na.rm = TRUE)) %>%
+  filter(!is.na(y))
+
+ks_d <- function(a, b) suppressWarnings(unname(ks.test(a, b)$statistic))
+obs  <- ks_d(mbl2$y[mbl2$asd == 1], mbl2$y[mbl2$asd == 0])
+mixed_fam <- Filter(function(ix) length(ix) > 1 && any(mbl2$asd[ix] == 1) && any(mbl2$asd[ix] == 0),
+                    split(seq_len(nrow(mbl2)), mbl2$fam))
+set.seed(20261026); n_perm <- 5000
+null_d <- replicate(n_perm, {
+  a <- mbl2$asd
+  for (ix in mixed_fam) { k <- sum(a[ix]); a[ix] <- 0L; a[ix[sample.int(length(ix), k)]] <- 1L }
+  ks_d(mbl2$y[a == 1], mbl2$y[a == 0])
+})
+mm <- coef(summary(lmerTest::lmer(y ~ asd + (1 | fam), data = mbl2)))["asd", ]
+mbl2_dist <- tibble(n_ASD = sum(mbl2$asd == 1), n_without_ASD = sum(mbl2$asd == 0),
+                    KS_D = obs, KS_P = (sum(null_d >= obs) + 1) / (n_perm + 1),
+                    mean_diff = mm[["Estimate"]], mean_diff_se = mm[["Std. Error"]], mean_diff_P = mm[["Pr(>|t|)"]])
+print(mbl2_dist)
+write_csv(mbl2_dist, file.path(out_dir, "stats_mbl2_distribution.csv"))
 
 cat("\n=== COMPLETE ===\n")
