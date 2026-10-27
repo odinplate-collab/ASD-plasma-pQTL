@@ -45,9 +45,10 @@ Expected layout under `ASD_ROOT`:
 | `TMT/` | TMT peptide/protein tables, sample information |
 | `Validation/` | DIA matrices and metadata; TMT differential abundance table |
 | `pQTL/` | genotype dosages (GRCh37), pQTL inputs and outputs (`pQTL/pQTL_re/`) |
+| `Variant/` | GRCh37 genotype calls of all sequenced individuals (`GrCh37_nochr/chr*.vcf.gz`) |
 | `reference/` | FragPipe search FASTA (UniProt human, one protein per gene) |
 | `GWAS/`, `Co_localization/` | GWAS summary statistics; colocalization outputs |
-| `derived/` | intermediate tables: sample list, peptide matrix, protein maps, protein-level cis statistics, outcome GWAS and LD reference cut to protein windows, Niu et al. windows |
+| `derived/` | intermediate tables: sample list, peptide matrix, protein abundance matrix export, protein maps, protein-level cis statistics, outcome GWAS and LD reference cut to protein windows, Niu et al. windows; outputs of the genotype, diagnosis and annotation analyses |
 | `panel12/` | inputs and outputs for the 12-protein panel |
 | `brain/` | cortex and single-nucleus inputs and outputs |
 | `single_cell/` | Velmeshev et al. raw count matrix |
@@ -63,16 +64,20 @@ Each script header lists its exact inputs and outputs.
 |---|---|
 | **01_proteomics_TMT/** | |
 | `differential_abundance.R` | Family-shared expression exclusion (ASD-only up/down proteins), ASD vs others model with age and sex, neutrality-weighted priority score |
-| `covariate_regression.R` | Sex and age effects on protein abundance |
+| `whole_cohort_age_sex.R` | Age and sex sensitivity of differential abundance in the whole cohort: linear mixed models with a random intercept for family (ASD effect with linear or spline age; sex and age effects in individuals without ASD), unadjusted ASD vs TD, ASD minus own sibling |
+| `export_protein_matrix.R` | Export of the protein abundance matrix for the Python models |
 | **02_pQTL_mapping/** | |
 | `pqtl_mapping.R` | Peptide matrix preparation (VSN, MinProb imputation, ComBat on TMT batch, unique peptides), peptide principal components, cis/trans Matrix eQTL in ASD (n = 48) and TD (n = 42), ASD-only associations and differential-abundance flags, overlap counts |
 | `pqtl_calibration_permutation.R`, `pqtl_calibration_table.R` | Calibration: observed versus permuted association counts by P-value threshold (observed run and 100 permutations of genotype labels in ASD; enrichment and empirical FDR) |
 | `protein_level_cis.R` | Protein-level cis association, ASD only / TD only / combined (n = 90, diagnosis-adjusted) |
 | **03_genotype_diagnosis_MR/** | |
 | `instrument_selection.py` | Lead cis variant, F statistic, MAF and retention for the ASD-elevated cis-pQTL proteins |
-| `genotype_diagnosis_mr.py` | Genotype + diagnosis and interaction models, within-group slopes, variance explained; Wald-ratio Mendelian randomization with this study's instruments; concordance with Niu et al. |
+| `genotype_diagnosis_mr.py` | Genotype + diagnosis and genotype × diagnosis models on the protein abundance matrix, variance explained; Wald-ratio Mendelian randomization with this study's instruments; concordance with Niu et al. |
 | `niu_mr_colocalization.py` | Proteome-wide Mendelian randomization (Niu et al. and UKB-PPP instruments) and colocalization |
-| `summary_statistics.py` | DerSimonian–Laird pooling, slope agreement, MBL2 within-genotype tests, MR and concordance summaries |
+| `summary_statistics.py` | DerSimonian–Laird pooling, variance explained, MR and concordance summaries |
+| `extract_hardcall_genotypes.py` | Hard-call genotypes of all sequenced individuals at the Niu et al. lead instrument of each measured protein |
+| `genotype_by_diagnosis_interaction.R` | Genotype × diagnosis interaction screen (linear mixed model with sex, age and a random intercept for family) with external instruments; robustness of the strongest interaction (ASD and TD only, genotype × age, genotype × sex, inverse-normal abundance, leave one family out) |
+| `lead_variant_by_group.R` | For the strongest interaction: slopes per raising allele within groups, ASD vs TD within genotype classes, allele frequencies, and age and ASD effects in homozygotes |
 | **04_colocalization/** | |
 | `coloc_discovery_pqtl.R` | coloc.abf of this study's cis-pQTLs with the ASD, schizophrenia, ADHD, intelligence and educational attainment GWAS |
 | `coloc_niu_pqtl.R` | coloc.abf of Niu et al. pQTL with the ASD GWAS at the same loci |
@@ -80,11 +85,11 @@ Each script header lists its exact inputs and outputs.
 | `protein_fisher_test.R` | Genotype × diagnosis Fisher's exact test for ASD pQTL variants combined with differential abundance; uses the cis and ASD-only trans associations of the April 2022 mapping (input files dated 20220413) |
 | `prioritization_sets.R` | Intersection of the three prioritization criteria (12 proteins) and set sizes |
 | **06_DIA_validation/** | |
-| `dia_validation.R` | DIA preprocessing, pQTL replication, cross-platform concordance, pathway replication, five-group statistics |
+| `dia_validation.R` | DIA preprocessing, pQTL replication, cross-platform concordance, pathway replication, five-group statistics, MBL2 distribution in ASD versus individuals without ASD (Kolmogorov–Smirnov with within-family permutation; mixed model) |
 | **07_diagnostic_models/** | |
 | `extract_12_regions.py` | Lead-variant and regional genotypes for the 12 panel proteins |
-| `panel_auc.py` | Single-marker balanced AUC; 12-peptide panel and peptide / pQTL / WGS models with repeated cross-validation |
-| `panel_null.py` | Random 12-protein panels and label permutation through the same pipeline |
+| `panel_auc.py` | Single-marker balanced AUC; 12-protein panel and peptide / pQTL / WGS models with repeated cross-validation |
+| `panel_null.py` | Random 12-protein panels through the same pipeline |
 | **08_cortex/a_tissue_and_colocalization/** | |
 | `gtex_expression.py` | GTEx v8 median TPM of the 12 panel genes |
 | `fetch_csf_pqtl.R`, `fetch_brain_eqtl.R` | CSF pQTL and brain eQTL summary statistics for the 12 panel genes |
@@ -102,12 +107,16 @@ Each script header lists its exact inputs and outputs.
 
 ### Run order
 
-1. `01_proteomics_TMT`
+1. `01_proteomics_TMT` (`export_protein_matrix.R` before step 3)
 2. `02_pQTL_mapping`: `pqtl_mapping.R` → `protein_level_cis.R`. Calibration (independent of
    the rest): `pqtl_calibration_permutation.R` with `PERM_SEED=0` (observed) and
    `PERM_SEED=1` … `100` (permutations), then `pqtl_calibration_table.R`.
 3. `03_genotype_diagnosis_MR`: `instrument_selection.py` → `genotype_diagnosis_mr.py`;
-   `niu_mr_colocalization.py` (independent) → `summary_statistics.py`
+   `niu_mr_colocalization.py` (independent) → `summary_statistics.py`;
+   `niu_mr_colocalization.py` → `extract_hardcall_genotypes.py` →
+   `genotype_by_diagnosis_interaction.R` → `lead_variant_by_group.R`. The genotype table
+   written by `extract_hardcall_genotypes.py` holds individual-level data; pass a path
+   outside any shared location.
 4. `04_colocalization`
 5. `05_prioritization`: `protein_fisher_test.R` → `prioritization_sets.R`
 6. `06_DIA_validation`
@@ -124,6 +133,7 @@ Each script header lists its exact inputs and outputs.
 - **R 4.4.3:**
   - MatrixEQTL 2.3, data.table 1.17.0, dplyr 1.1.4, tidyverse 2.0.0, readxl 1.4.5
   - limma 3.62.2, edgeR 4.4.2, sva 3.54.0, vsn 3.74.0, DEP 1.28.0, preprocessCore 1.68.0
+  - lme4 2.0.1, lmerTest 3.2.1
   - coloc 5.2.3, ensembldb 2.30.0, EnsDb.Hsapiens.v75, Biostrings 2.74.1, Rsamtools 2.22.0
   - CellChat 2.2.0
 - **Python 3.9:** numpy 1.26, pandas 2.1, scipy 1.13, statsmodels 0.14, scikit-learn 1.6,
@@ -132,7 +142,7 @@ Each script header lists its exact inputs and outputs.
 ## Reproducibility notes
 
 - **Random seeds:** fixed where randomness is used (diagnostic models: 20260922; calibration
-  permutation: `PERM_SEED`).
+  permutation: `PERM_SEED`; DIA MBL2 permutation: 20261026).
 - **Unseeded imputation:** the MinProb imputation of missing peptide intensities in
   `pqtl_mapping.R` was run without a seed. Re-running it reproduces the original matrices
   only up to that imputation (median absolute difference 3.5e-4).
