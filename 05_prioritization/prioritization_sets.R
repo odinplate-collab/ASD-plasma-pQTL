@@ -1,4 +1,4 @@
-# Prioritization of risk proteins: intersection of three criteria.
+# Prioritization of ASD-linked proteins: intersection of three criteria.
 #   (i)   protein Fisher test, up direction              (protein_fisher_test.R; 93 proteins)
 #   (ii)  elevated in ASD with an ASD-only cis-pQTL      (ASD_only_Cis_FDR.txt, DEP_up; 39 proteins)
 #   (iii) ASD-only after family-shared signal exclusion  (differential_abundance.R; 52 up + 12 down)
