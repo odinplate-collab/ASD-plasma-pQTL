@@ -1,13 +1,13 @@
 # Diagnostic performance of the 12-protein panel in the 90 unrelated individuals.
-#   e  single-marker balanced AUC (best peptide per protein, 400 class-balanced subsamples)
-#   f  12-peptide panel: stratified 5-fold CV x 20 repeats, peptide selection, scaling and
+#   - single-marker balanced AUC (best peptide per protein, 400 class-balanced subsamples)
+#   - 12-protein panel: stratified 5-fold CV x 20 repeats, peptide selection, scaling and
 #      L2 logistic regression (C = 1) inside training folds only
-#   g  Peptide, pQTL and WGS feature blocks and their combinations, same CV
+#   - Peptide, pQTL and WGS feature blocks and their combinations, same CV
 # Inputs (relative to ASD_ROOT): pQTL/pQTL_re/pep_unique_ASD.txt, pep_unique_UHC.txt,
 #   panel12/data/panel12_lead_instruments.tsv, genotype_12leads.tsv.gz, genotype_12regions.tsv.gz,
 #   derived/11_protein_maps/measured_proteins_regions_1Mb.tsv (see extract_12_regions.py)
-# Outputs (relative to ASD_ROOT): panel12/data/panel_e_single_marker_auc.tsv, panel_e_roc.tsv,
-#   panel_f_panel_cv.json, panel_f_roc.tsv, panel_g_triomics_auc.tsv
+# Outputs (relative to ASD_ROOT): panel12/data/single_marker_auc.tsv, single_marker_roc.tsv,
+#   panel_cv_auc.json, panel_roc.tsv, feature_block_auc.tsv
 # Usage: python panel_auc.py
 import os
 import csv
@@ -78,7 +78,7 @@ def balanced_auc(score, lab, n_rep=200, rng=None):
     return float(np.mean(out)), float(np.std(out))
 
 
-# ---------------- panel e: best peptide per protein ----------------------
+# ---------------- single markers: best peptide per protein ----------------------
 best, e_rows = {}, []
 for g in P12:
     cand = []
@@ -99,9 +99,9 @@ for g in P12:
                        plain_auc=round(roc_auc_score(y[ok], (sign * Z[i])[ok]), 4),
                        direction='up in ASD' if sign > 0 else 'down in ASD',
                        n_peptides_considered=len(cand)))
-    print('  e  %-9s %-28s balanced AUC %.3f' % (g, pid_a[i], ab), flush=True)
+    print('  single marker  %-9s %-28s balanced AUC %.3f' % (g, pid_a[i], ab), flush=True)
 
-with open(D + '/panel_e_single_marker_auc.tsv', 'w', newline='', encoding='utf-8') as f:
+with open(D + '/single_marker_auc.tsv', 'w', newline='', encoding='utf-8') as f:
     w = csv.DictWriter(f, list(e_rows[0].keys()), delimiter=TAB, lineterminator=NL)
     w.writeheader()
     w.writerows(e_rows)
@@ -243,16 +243,16 @@ for name, blocks in SETS:
     results.append(dict(feature_set=name, n_features=X.shape[1],
                         cv_auc=round(m, 4), sd=round(s, 4),
                         ci_lo=round(ci[0], 4), ci_hi=round(ci[1], 4)))
-    print('  g  %-14s AUC %.3f (SD %.3f, 95%% %.3f-%.3f)'
+    print('  feature blocks  %-14s AUC %.3f (SD %.3f, 95%% %.3f-%.3f)'
           % (name, m, s, ci[0], ci[1]), flush=True)
 
-with open(D + '/panel_g_triomics_auc.tsv', 'w', newline='', encoding='utf-8') as f:
+with open(D + '/feature_block_auc.tsv', 'w', newline='', encoding='utf-8') as f:
     w = csv.DictWriter(f, list(results[0].keys()), delimiter=TAB, lineterminator=NL)
     w.writeheader()
     w.writerows(results)
 
 pep_only = [r for r in results if r['feature_set'] == 'Peptide'][0]
-with open(D + '/panel_f_panel_cv.json', 'w', encoding='utf-8') as f:
+with open(D + '/panel_cv_auc.json', 'w', encoding='utf-8') as f:
     json.dump(dict(n_proteins=12, n_ASD=int(y.sum()), n_TD=int((1 - y).sum()),
                    n_splits=N_SPLIT, n_repeats=N_REP, seed=SEED,
                    cv_auc=pep_only['cv_auc'], sd=pep_only['sd'],
@@ -269,14 +269,14 @@ for tr, te in cv1.split(np.zeros(len(y)), y):
     clf = LogisticRegression(max_iter=5000).fit((Xf[tr] - m) / s, y[tr])
     oof[te] = clf.predict_proba((Xf[te] - m) / s)[:, 1]
 fpr, tpr, _ = roc_curve(y, oof)
-with open(D + '/panel_f_roc.tsv', 'w', newline='', encoding='utf-8') as f:
+with open(D + '/panel_roc.tsv', 'w', newline='', encoding='utf-8') as f:
     w = csv.writer(f, delimiter=TAB, lineterminator=NL)
     w.writerow(['fpr', 'tpr'])
     w.writerows(zip(fpr, tpr))
-print('panel f pooled out-of-fold AUC (single split): %.4f'
+print('12-protein panel, pooled out-of-fold AUC (single split): %.4f'
       % roc_auc_score(y, oof), flush=True)
 
-with open(D + '/panel_e_roc.tsv', 'w', newline='', encoding='utf-8') as f:
+with open(D + '/single_marker_roc.tsv', 'w', newline='', encoding='utf-8') as f:
     w = csv.writer(f, delimiter=TAB, lineterminator=NL)
     w.writerow(['protein', 'peptide', 'fpr', 'tpr'])
     for g in P12:

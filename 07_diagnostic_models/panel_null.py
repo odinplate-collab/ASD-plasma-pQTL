@@ -1,6 +1,6 @@
-# Reference distributions for the 12-protein panel AUC: 200 panels of 12 proteins drawn
-# at random from the measured proteome, and 100 permutations of the ASD/TD labels, each run
-# through the panel pipeline of panel_auc.py (stratified 5-fold CV x 4 repeats).
+# Reference distribution for the 12-protein panel AUC: 200 panels of 12 proteins drawn at
+# random from the measured proteome, each run through the panel pipeline of panel_auc.py
+# (stratified 5-fold CV x 4 repeats).
 # Inputs (relative to ASD_ROOT): pQTL/pQTL_re/pep_unique_ASD.txt, pep_unique_UHC.txt
 # Outputs (relative to ASD_ROOT): panel12/data/panel_null_summary.json, panel_null_draws.tsv
 # Usage: python panel_null.py
@@ -112,29 +112,14 @@ for k in range(N_DRAWS):
               % (k + 1, N_DRAWS, a.mean(), *np.percentile(a, [2.5, 97.5])),
               flush=True)
 
-null_perm = []
-for k in range(N_DRAWS // 2):
-    yp = rng.permutation(y0)
-    null_perm.append(run_panel(real, yp))
-    if (k + 1) % 25 == 0:
-        a = np.array(null_perm)
-        print('  permuted labels %3d/%d  mean %.3f' % (k + 1, N_DRAWS // 2, a.mean()),
-              flush=True)
-
 np_ = np.array(null_panels)
-pp = np.array(null_perm)
 summary = dict(
     observed_auc=round(obs, 4),
     random_panel_null=dict(n=len(np_), mean=round(float(np_.mean()), 4),
                            sd=round(float(np_.std()), 4),
                            ci=[round(float(x), 4) for x in
                                np.percentile(np_, [2.5, 97.5])],
-                           p_empirical=round(float((np_ >= obs).mean()), 4)),
-    permuted_label_null=dict(n=len(pp), mean=round(float(pp.mean()), 4),
-                             sd=round(float(pp.std()), 4),
-                             ci=[round(float(x), 4) for x in
-                                 np.percentile(pp, [2.5, 97.5])],
-                             p_empirical=round(float((pp >= obs).mean()), 4)))
+                           p_empirical=round(float((np_ >= obs).mean()), 4)))
 print(json.dumps(summary, indent=2), flush=True)
 with open(D + '/panel_null_summary.json', 'w', encoding='utf-8') as f:
     json.dump(summary, f, indent=2)
@@ -143,6 +128,4 @@ with open(D + '/panel_null_draws.tsv', 'w', newline='', encoding='utf-8') as f:
     w.writerow(['null_type', 'auc'])
     for v in np_:
         w.writerow(['random_protein_panel', round(float(v), 5)])
-    for v in pp:
-        w.writerow(['permuted_labels', round(float(v), 5)])
 print('done', flush=True)
